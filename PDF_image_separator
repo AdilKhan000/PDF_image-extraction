@@ -1,0 +1,67 @@
+import fitz  # PyMuPDF
+import io
+from PIL import Image, ImageOps
+import os
+
+# Open the source PDF file
+src_pdf = fitz.open('Source.pdf')
+
+# Create a new PDF to store the images
+dst_pdf = fitz.open()
+
+# Create a folder to store problematic images
+problematic_images_folder = 'problematic_images'
+os.makedirs(problematic_images_folder, exist_ok=True)
+
+# Iterate over the pages
+for page_index in range(len(src_pdf)):
+    page = src_pdf[page_index]
+    image_list = page.get_images(full=True)
+
+    if image_list:
+        # Create a new page in the destination PDF
+        dst_page = dst_pdf.new_page(width=595, height=842)  # A4 size page
+
+    # If there are images on the page
+    if image_list:
+        image_height = 842 // len(image_list)
+        for image_index, img in enumerate(image_list, start=1):
+            xref = img[0]
+            base_image = src_pdf.extract_image(xref)
+            image_data = base_image["image"]
+
+            
+            image = Image.open(io.BytesIO(image_data))
+            if image.mode == 'CMYK':
+                image = image.convert('RGB')
+            if image.mode == 'RGBA':
+                    image = image.convert('RGB')
+            image = ImageOps.invert(image)
+            
+            # Skip images of size zero
+            if image.size == (0, 0):
+                continue
+
+            # Save the image to a temporary file
+            image.save("temp.png")
+
+            rect = fitz.Rect(0, image_height * (image_index - 1), 595, image_height * image_index)
+            # Insert the image at the top of the page
+            try:
+                dst_page.insert_image(rect, filename="temp.png")
+            except Exception as e:
+                # Log problematic images
+                filename = f"page_{page_index + 1}_image_{image_index}.png"
+                with open(os.path.join(problematic_images_folder, filename), 'wb') as f:
+                    f.write(image_data)
+                print(f"Problematic image in: {page_index+1}")
+                continue
+
+            # Add a text of where it found the image on the top of the page
+            print(f"Image found on page {page_index + 1} of the source document.")
+            dst_page.insert_text((20, 20), f"Image found on page {page_index + 1} of the source document.")
+
+# Save the new PDF
+dst_pdf.save("output.pdf")
+
+print("PDF created with images.")
